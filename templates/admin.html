@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>APT Cache Admin</title>
+    <link rel="icon" href="data:,">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <style>
+        body { background-color: #0d1117; color: #e6edf3; font-family: -apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans",Helvetica,Arial,sans-serif; }
+        .navbar { background-color: #161b22 !important; border-bottom: 1px solid #30363d; }
+        .card { background-color: #161b22; border: 1px solid #30363d; border-radius: 6px; margin-bottom: 20px; }
+        .card-header { background-color: #21262d; border-bottom: 1px solid #30363d; font-weight: 600; }
+        .table { color: #e6edf3; }
+        .table-hover tbody tr:hover { color: #e6edf3; background-color: #21262d; }
+        .btn-xs { padding: 0.1rem 0.4rem; font-size: 0.75rem; }
+        .status-approved { color: #3fb950; }
+        .status-pending { color: #d29922; }
+        .status-blacklisted { color: #f85149; }
+        .modal-content { background-color: #161b22; border: 1px solid #30363d; color: #e6edf3; }
+        .modal-header { border-bottom: 1px solid #30363d; }
+        .modal-footer { border-top: 1px solid #30363d; }
+        .form-control { background-color: #0d1117; border: 1px solid #30363d; color: #e6edf3; }
+        .form-control:focus { background-color: #0d1117; border-color: #58a6ff; color: #e6edf3; box-shadow: 0 0 0 0.25rem rgba(88, 166, 255, 0.25); }
+        .cursor-pointer { cursor: pointer; }
+        .form-check-input:checked { background-color: #238636; border-color: #238636; }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark mb-4">
+        <div class="container">
+            <a class="navbar-brand d-flex align-items-center gap-2" href="/">
+                <i class="bi bi-hdd-network"></i> APT Cache Proxy
+            </a>
+            <div class="d-flex align-items-center gap-3">
+                <span class="badge bg-danger">Admin Panel</span>
+                <button class="btn btn-sm btn-outline-secondary" onclick="logout()">Logout</button>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container" id="login-container">
+        <div class="row justify-content-center mt-5">
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header">Admin Login</div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label class="form-label">Admin Token</label>
+                            <input type="password" class="form-control" id="admin-token">
+                        </div>
+                        <button class="btn btn-primary w-100" onclick="login()">Login</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="container d-none" id="admin-content">
+        <!-- Top Row: Config and Actions -->
+        <div class="row mb-4">
+            <div class="col-md-6">
+                <div class="card h-100">
+                    <div class="card-header">
+                        <i class="bi bi-gear me-2"></i>Configuration
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <div class="form-check form-switch mb-2">
+                                <input class="form-check-input" type="checkbox" id="config-retention-enabled">
+                                <label class="form-check-label" for="config-retention-enabled">Enable Cache Retention Policy</label>
+                            </div>
+
+                            <label class="form-label">Delete files not accessed in (Days)</label>
+                            <div class="input-group">
+                                <input type="number" class="form-control" id="config-cache-days" min="1">
+                                <button class="btn btn-primary" onclick="saveConfig()">Save</button>
+                            </div>
+                            <div class="form-text text-muted">Files not accessed (hit) within this period will be deleted during cleanup.</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card h-100">
+                    <div class="card-header">
+                        <i class="bi bi-tools me-2"></i>System Actions
+                    </div>
+                    <div class="card-body">
+                        <button class="btn btn-warning me-2" onclick="confirmAction('cleanup', 'Are you sure you want to run cache cleanup now?')">
+                            <i class="bi bi-trash"></i> Run Cleanup
+                        </button>
+                        <button class="btn btn-info" onclick="confirmAction('reload', 'Reload configuration from disk?')">
+                            <i class="bi bi-arrow-repeat"></i> Reload Config
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Package Management -->
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center cursor-pointer" onclick="toggleCard(event, 'packageCollapse')">
+                <span><i class="bi bi-box-seam me-2"></i>Package Management</span>
+                <i class="bi bi-chevron-down"></i>
+            </div>
+            <div id="packageCollapse" class="collapse show">
+                <div class="card-body">
+
+                    <!-- Blacklist Section -->
+                    <div class="mb-4 border-bottom border-secondary pb-3">
+                        <h6><i class="bi bi-slash-circle me-2"></i>Blacklist Patterns</h6>
+                        <p class="text-muted small">Packages matching these patterns will be served but <strong>not cached</strong>. Supports wildcards (e.g. <code>*kernel*</code>).</p>
+                        <div class="input-group mb-2">
+                            <input type="text" class="form-control" id="blacklist-input" placeholder="Enter pattern (e.g. linux-image-*)">
+                            <button class="btn btn-danger" onclick="addBlacklist()">Add Pattern</button>
+                        </div>
+                        <div id="blacklist-tags" class="d-flex flex-wrap gap-2">
+                            <!-- Tags populated here -->
+                        </div>
+                    </div>
+
+                    <!-- Search Section -->
+                    <h6><i class="bi bi-search me-2"></i>Search Cache</h6>
+                    <div class="input-group mb-3">
+                        <input type="text" class="form-control" id="package-search" placeholder="Search cached packages...">
+                        <button class="btn btn-primary" onclick="searchPackages()">Search</button>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table table-hover table-dark table-sm">
+                            <thead>
+                                <tr>
+                                    <th>Package</th>
+                                    <th>Distro</th>
+                                    <th>Size</th>
+                                    <th>Cached Date</th>
+                                    <th>Last Hit</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="packages-table">
+                                <tr><td colspan="6" class="text-center text-muted">Search to manage packages</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Mirror Management -->
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center cursor-pointer" onclick="toggleCard(event, 'mirrorCollapse')">
+                <span><i class="bi bi-list-check me-2"></i>Mirror Management</span>
+                <div>
+                    <button class="btn btn-sm btn-success me-2" onclick="openAddModal()"><i class="bi bi-plus-lg"></i> Add Mirror</button>
+                    <button class="btn btn-sm btn-outline-primary me-2" onclick="loadMirrors()"><i class="bi bi-arrow-clockwise"></i> Refresh</button>
+                    <i class="bi bi-chevron-down"></i>
+                </div>
+            </div>
+            <div id="mirrorCollapse" class="collapse show">
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-hover table-dark">
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>URLs</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="mirrors-table">
+                                <!-- Mirrors populated here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add/Edit Mirror Modal -->
+    <div class="modal fade" id="mirrorModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="mirrorModalLabel">Add Mirror</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" id="mirror-action" value="add">
+                    <div class="mb-3">
+                        <label class="form-label">Name (Distro/Host)</label>
+                        <input type="text" class="form-control" id="mirror-name" placeholder="e.g. ubuntu">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">URLs (One per line)</label>
+                        <textarea class="form-control" id="mirror-urls" rows="4" placeholder="http://archive.ubuntu.com/ubuntu"></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Status</label>
+                        <select class="form-control" id="mirror-status">
+                            <option value="approved">Approved</option>
+                            <option value="pending">Pending</option>
+                            <option value="blacklisted">Blacklisted</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="saveMirror()">Save</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Confirmation Modal -->
+    <div class="modal fade" id="confirmModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Confirm Action</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p id="confirm-message">Are you sure?</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="confirm-btn">Confirm</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container position-fixed bottom-0 end-0 p-3">
+        <div id="liveToast" class="toast" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="toast-header">
+                <i class="bi bi-info-circle-fill me-2" id="toast-icon"></i>
+                <strong class="me-auto" id="toast-title">Notification</strong>
+                <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+            <div class="toast-body" id="toast-message"></div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let token = localStorage.getItem('admin_token');
+        const mirrorModal = new bootstrap.Modal(document.getElementById('mirrorModal'));
+        const confirmModal = new bootstrap.Modal(document.getElementById('confirmModal'));
+        const toastEl = document.getElementById('liveToast');
+        const toast = new bootstrap.Toast(toastEl);
+        let confirmCallback = null;
+
+        function login() {
+            const input = document.getElementById('admin-token').value;
+            if (input) {
+                token = input;
+                localStorage.setItem('admin_token', token);
+                checkAuth();
+            }
+        }
+
+        // Allow Enter key to login
+        document.getElementById('admin-token').addEventListener('keypress', function (e) {
+            if (e.key === 'Enter') {
+                login();
+            }
+        });
+
+        function logout() {
+            localStorage.removeItem('admin_token');
+            location.reload();
+        }
+
+        function checkAuth() {
+            if (token) {
+                document.getElementById('login-container').classList.add('d-none');
+                document.getElementById('admin-content').classList.remove('d-none');
+                loadMirrors();
+                loadConfig();
+                loadBlacklist();
+            }
+        }
+
+        function toggleCard(event, targetId) {
+            // Prevent collapse if clicking on buttons or inputs
+            if (event.target.closest('button') || event.target.closest('input') || event.target.closest('a')) {
+                return;
+            }
+            const el = document.getElementById(targetId);
+            const bsCollapse = bootstrap.Collapse.getOrCreateInstance(el);
+            bsCollapse.toggle();
+        }
+
+        function showToast(message, type = 'success') {
+            const title = document.getElementById('toast-title');
+            const body = document.getElementById('toast-message');
+            const icon = document.getElementById('toast-icon');
+            const header = toastEl.querySelector('.toast-header');
+
+            body.innerText = message;
+
+            // Reset classes
+            header.className = 'toast-header';
+            icon.className = 'bi me-2';
+
+            if (type === 'success') {
+                title.innerText = 'Success';
+                header.classList.add('text-success');
+                icon.classList.add('bi-check-circle-fill');
+            } else if (type === 'error') {
+                title.innerText = 'Error';
+                header.classList.add('text-danger');
+                icon.classList.add('bi-exclamation-triangle-fill');
+            } else {
+                title.innerText = 'Info';
+                header.classList.add('text-primary');
+                icon.classList.add('bi-info-circle-fill');
+            }
+
+            toast.show();
+        }
+
+        function loadConfig() {
+            fetch('/api/admin/config', {
+                headers: { 'Authorization': 'Bearer ' + token }
+            })
+            .then(res => res.json())
+            .then(data => {
+                document.getElementById('config-cache-days').value = data.cache_days;
+                document.getElementById('config-retention-enabled').checked = data.cache_retention_enabled;
+            });
+        }
+
+        function saveConfig() {
+            const days = document.getElementById('config-cache-days').value;
+            const enabled = document.getElementById('config-retention-enabled').checked;
+
+            fetch('/api/admin/config', {
+                method: 'PUT',
+                headers: {
+                    'Authorization': 'Bearer ' + token,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    cache_days: days,
+                    cache_retention_enabled: enabled
+                })
+            })
+            .then(res => {
+                if (res.ok) showToast('Configuration saved');
+                else showToast('Failed to save configuration', 'error');
+            });
+        }
+
+        function loadMirrors() {
+            fetch('/api/admin/mirrors', {
+                headers: { 'Authorization': 'Bearer ' + token }
+            })
+            .then(res => {
+                if (res.status === 401) {
+                    logout();
+                    return;
+                }
+                return res.json();
+            })
+            .then(data => {
+                const tbody = document.getElementById('mirrors-table');
+                tbody.innerHTML = '';
+
+                // Sort: Pending first, then Approved, then Blacklisted
+                const sorted = Object.entries(data).sort((a, b) => {
+                    const order = { 'pending': 0, 'approved': 1, 'blacklisted': 2 };
+                    return order[a[1].status] - order[b[1].status];
+                });
+
+                for (const [name, info] of sorted) {
+                    const urls = info.urls.join('<br>');
+                    let statusIcon = '';
+                    if (info.status === 'approved') statusIcon = '<i class="bi bi-check-circle-fill status-approved"></i> Approved';
+                    else if (info.status === 'pending') statusIcon = '<i class="bi bi-exclamation-circle-fill status-pending"></i> Pending';
+                    else statusIcon = '<i class="bi bi-x-circle-fill status-blacklisted"></i> Blacklisted';
+
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td class="fw-bold">${name}</td>
+                        <td class="small text-muted">${urls}</td>
+                        <td>${statusIcon}</td>
+                        <td>
+                            <div class="btn-group">
+                                <button class="btn btn-xs btn-primary" onclick="openEditModal('${name}', '${encodeURIComponent(JSON.stringify(info.urls))}', '${info.status}')"><i class="bi bi-pencil"></i></button>
+                                ${info.status !== 'approved' ? `<button class="btn btn-xs btn-success" onclick="updateStatus('${name}', 'approved')">Approve</button>` : ''}
+                                ${info.status !== 'blacklisted' ? `<button class="btn btn-xs btn-warning" onclick="updateStatus('${name}', 'blacklisted')">Blacklist</button>` : ''}
+                                <button class="btn btn-xs btn-danger" onclick="deleteMirror('${name}')"><i class="bi bi-trash"></i></button>
+                            </div>
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+                }
+            });
+        }
+
+        function openAddModal() {
+            document.getElementById('mirrorModalLabel').innerText = 'Add Mirror';
+            document.getElementById('mirror-action').value = 'add';
+            document.getElementById('mirror-name').value = '';
+            document.getElementById('mirror-name').disabled = false;
+            document.getElementById('mirror-urls').value = '';
+            document.getElementById('mirror-status').value = 'approved';
+            mirrorModal.show();
+        }
+
+        function openEditModal(name, urlsEncoded, status) {
+            const urls = JSON.parse(decodeURIComponent(urlsEncoded));
+            document.getElementById('mirrorModalLabel').innerText = 'Edit Mirror';
+            document.getElementById('mirror-action').value = 'edit';
+            document.getElementById('mirror-name').value = name;
+            document.getElementById('mirror-name').disabled = true;
+            document.getElementById('mirror-urls').value = urls.join('\n');
+            document.getElementById('mirror-status').value = status;
+            mirrorModal.show();
+        }
+
+        function saveMirror() {
+            const action = document.getElementById('mirror-action').value;
+            const name = document.getElementById('mirror-name').value;
+            const urlsText = document.getElementById('mirror-urls').value;
+            const status = document.getElementById('mirror-status').value;
+
+            const urls = urlsText.split('\n').map(u => u.trim()).filter(u => u);
+
+            if (!name || urls.length === 0) {
+                showToast('Name and at least one URL are required', 'error');
+                return;
+            }
+
+            const method = action === 'add' ? 'POST' : 'PUT';
+            const url = action === 'add' ? '/api/admin/mirrors' : `/api/admin/mirrors/${name}`;
+
+            fetch(url, {
+                method: method,
+                headers: {
+                    'Authorization': 'Bearer ' + token,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ name, urls, status })
+            })
+            .then(res => {
+                if (res.ok) {
+                    mirrorModal.hide();
+                    loadMirrors();
+                    showToast('Mirror saved successfully');
+                } else {
+                    res.text().then(text => showToast('Failed: ' + text, 'error'));
+                }
+            });
+        }
+
+        function updateStatus(name, status) {
+            fetch(`/api/admin/mirrors/${name}`, {
+                method: 'PUT',
+                headers: {
+                    'Authorization': 'Bearer ' + token,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ status: status })
+            })
+            .then(res => {
+                if (res.ok) {
+                    loadMirrors();
+                    showToast('Status updated');
+                }
+                else showToast('Failed to update status', 'error');
+            });
+        }
+
+        function deleteMirror(name) {
+            confirmAction(
+                () => {
+                    fetch(`/api/admin/mirrors/${name}`, {
+                        method: 'DELETE',
+                        headers: { 'Authorization': 'Bearer ' + token }
+                    })
+                    .then(res => {
+                        if (res.ok) {
+                            loadMirrors();
+                            showToast('Mirror deleted');
+                        }
+                        else showToast('Failed to delete mirror', 'error');
+                    });
+                },
+                `Are you sure you want to delete ${name}?`
+            );
+        }
+
+        function triggerAction(action) {
+            fetch(`/${action}`, {
+                headers: { 'Authorization': 'Bearer ' + token }
+            })
+            .then(res => res.json())
+            .then(data => showToast(data.status || 'Done'))
+            .catch(err => showToast('Error: ' + err, 'error'));
+        }
+
+        function searchPackages() {
+            const query = document.getElementById('package-search').value;
+            if (!query) return;
+
+            const tbody = document.getElementById('packages-table');
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center"><div class="spinner-border text-primary" role="status"></div></td></tr>';
+
+            fetch(`/api/cache/search?q=${encodeURIComponent(query)}`)
+                .then(res => res.json())
+                .then(data => {
+                    if (data.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No packages found</td></tr>';
+                        return;
+                    }
+
+                    tbody.innerHTML = data.map(item => `
+                        <tr>
+                            <td>${item.name}</td>
+                            <td><span class="badge bg-secondary">${item.distro}</span></td>
+                            <td>${formatBytes(item.size)}</td>
+                            <td class="small text-muted">${item.mtime}</td>
+                            <td class="small text-muted">${item.atime}</td>
+                            <td>
+                                <button class="btn btn-xs btn-danger" onclick="deletePackage('${item.path}')"><i class="bi bi-trash"></i></button>
+                            </td>
+                        </tr>
+                    `).join('');
+                });
+        }
+
+        // Allow Enter key to search packages
+        document.getElementById('package-search').addEventListener('keypress', function (e) {
+            if (e.key === 'Enter') {
+                searchPackages();
+            }
+        });
+
+        function deletePackage(path) {
+            confirmAction(
+                () => {
+                    fetch(`/api/admin/cache?path=${encodeURIComponent(path)}`, {
+                        method: 'DELETE',
+                        headers: { 'Authorization': 'Bearer ' + token }
+                    })
+                    .then(res => {
+                        if (res.ok) {
+                            searchPackages();
+                            showToast('File deleted');
+                        }
+                        else showToast('Failed to delete file', 'error');
+                    });
+                },
+                'Delete this cached file?'
+            );
+        }
+
+        function loadBlacklist() {
+            fetch('/api/admin/blacklist', {
+                headers: { 'Authorization': 'Bearer ' + token }
+            })
+            .then(res => res.json())
+            .then(data => {
+                const container = document.getElementById('blacklist-tags');
+                container.innerHTML = data.map(pattern => `
+                    <span class="badge bg-secondary d-flex align-items-center gap-2">
+                        ${pattern}
+                        <i class="bi bi-x cursor-pointer" onclick="removeBlacklist('${pattern}')"></i>
+                    </span>
+                `).join('');
+            });
+        }
+
+        function addBlacklist() {
+            const pattern = document.getElementById('blacklist-input').value;
+            if (!pattern) return;
+
+            fetch('/api/admin/blacklist', {
+                method: 'POST',
+                headers: {
+                    'Authorization': 'Bearer ' + token,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ pattern })
+            })
+            .then(res => {
+                if (res.ok) {
+                    document.getElementById('blacklist-input').value = '';
+                    loadBlacklist();
+                    showToast('Pattern added');
+                } else {
+                    showToast('Failed to add pattern', 'error');
+                }
+            });
+        }
+
+        // Allow Enter key to add blacklist pattern
+        document.getElementById('blacklist-input').addEventListener('keypress', function (e) {
+            if (e.key === 'Enter') {
+                addBlacklist();
+            }
+        });
+
+        function removeBlacklist(pattern) {
+            confirmAction(
+                () => {
+                    fetch(`/api/admin/blacklist?pattern=${encodeURIComponent(pattern)}`, {
+                        method: 'DELETE',
+                        headers: { 'Authorization': 'Bearer ' + token }
+                    })
+                    .then(res => {
+                        if (res.ok) {
+                            loadBlacklist();
+                            showToast('Pattern removed');
+                        }
+                        else showToast('Failed to remove pattern', 'error');
+                    });
+                },
+                `Remove blacklist pattern '${pattern}'?`
+            );
+        }
+
+        function formatBytes(bytes, decimals = 2) {
+            if (!+bytes) return '0 Bytes';
+            const k = 1024;
+            const dm = decimals < 0 ? 0 : decimals;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+        }
+
+        // Custom Confirmation Modal Logic
+        function confirmAction(actionOrCallback, message) {
+            document.getElementById('confirm-message').innerText = message;
+
+            if (typeof actionOrCallback === 'function') {
+                confirmCallback = actionOrCallback;
+            } else {
+                // Legacy support for string actions (cleanup, reload)
+                confirmCallback = () => triggerAction(actionOrCallback);
+            }
+
+            confirmModal.show();
+        }
+
+        document.getElementById('confirm-btn').addEventListener('click', function() {
+            if (confirmCallback) {
+                confirmCallback();
+            }
+            confirmModal.hide();
+        });
+
+        // Init
+        if (token) checkAuth();
+    </script>
+</body>
+</html>

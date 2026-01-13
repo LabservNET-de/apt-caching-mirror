@@ -1,6 +1,6 @@
 {
   "host": "0.0.0.0",
-  "port": 8080,
+  "port": 80,
   "storage_path": "storage",
   "database_path": "data/stats.db",
   "cache_days": 7,

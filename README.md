@@ -1,6 +1,6 @@
 # APT Cache Proxy
 
-A modern, lightweight APT caching proxy server written in Python. It caches packages from upstream mirrors to save bandwidth and speed up package installation on your local network. It is designed to be a drop-in replacement for `apt-cacher-ng` in many scenarios.
+A modern, lightweight APT caching proxy server written in Go. It caches packages from upstream mirrors to save bandwidth and speed up package installation on your local network. It is designed to be a drop-in replacement for `apt-cacher-ng` in many scenarios.
 
 ## Features
 

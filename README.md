@@ -95,7 +95,7 @@ To run the proxy as a systemd service:
 
 2.  Install dependencies globally or in a venv (adjust path in service file if using venv):
     ```bash
-    sudo pip3 install -r requirements.txt
+    ./apt-cache-mirror
     ```
 
 3.  Copy the service file:
